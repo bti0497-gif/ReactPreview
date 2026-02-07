@@ -8,47 +8,80 @@ import { getFiles, createFolder, uploadFile, deleteFile } from './driveService';
 // 시스템 폴더 이름 정의
 const SYSTEM_ROOT = '.system';
 const JSON_DIR = 'json';
-const RESOURCE_DIR = 'resources';
+const RESOURCE_DIR = 'resources'; // 'resouces' 오타 가능성 방지 및 표준화
 
 let systemFolderId = null;
 let jsonFolderId = null;
 let resourceFolderId = null;
+let isInitializing = false;
+let initPromise = null;
 /* ========================================================================== */
 
 // 시스템 폴더 구조 초기화
 export const initSystemStorage = async (rootFolderId) => {
-    try {
-        console.log('Initializing system storage...');
-        const rootFiles = await getFiles(rootFolderId);
+    // 중복 초기화 방지 (레이스 컨디션 해결)
+    if (isInitializing) return initPromise;
+    if (systemFolderId && jsonFolderId && resourceFolderId) return { jsonFolderId, resourceFolderId };
 
-        // 1. .system 폴더 확인 및 생성
-        let systemFolder = rootFiles.find(f => f.name === SYSTEM_ROOT && f.mimeType === 'application/vnd.google-apps.folder');
-        if (!systemFolder) {
-            systemFolder = await createFolder(SYSTEM_ROOT, rootFolderId);
+    isInitializing = true;
+    initPromise = (async () => {
+        try {
+            console.log('Initializing system storage...');
+            const rootFiles = await getFiles(rootFolderId);
+
+            // 1. .system 폴더 확인 및 생성 (대소문자 무시 검색)
+            let systemFolder = rootFiles.find(f =>
+                f.name.toLowerCase() === SYSTEM_ROOT.toLowerCase() &&
+                f.mimeType === 'application/vnd.google-apps.folder'
+            );
+
+            if (!systemFolder) {
+                console.log('Creating system root folder...');
+                systemFolder = await createFolder(SYSTEM_ROOT, rootFolderId);
+            }
+            systemFolderId = systemFolder.id;
+
+            // 2. 하위 폴더 확인 및 생성 (json, resources)
+            const systemFiles = await getFiles(systemFolderId);
+
+            // JSON 폴더
+            let jsonFolder = systemFiles.find(f => f.name.toLowerCase() === JSON_DIR.toLowerCase());
+            if (!jsonFolder) {
+                console.log('Creating JSON data folder...');
+                jsonFolder = await createFolder(JSON_DIR, systemFolderId);
+            }
+            jsonFolderId = jsonFolder.id;
+
+            // 리소스 폴더 (사용자가 언급한 'resouces' 오타 포함하여 검색)
+            let resourceFolder = systemFiles.find(f =>
+                f.name.toLowerCase() === RESOURCE_DIR.toLowerCase() ||
+                f.name.toLowerCase() === 'resouces'
+            );
+
+            if (!resourceFolder) {
+                console.log('Creating resources folder...');
+                resourceFolder = await createFolder(RESOURCE_DIR, systemFolderId);
+            } else if (resourceFolder.name === 'resouces') {
+                // 기존에 오타로 생성된 폴더가 있다면 이름을 정정 (선택 사항)
+                // await renameFile(resourceFolder.id, RESOURCE_DIR);
+            }
+            resourceFolderId = resourceFolder.id;
+
+            console.log('System storage initialized successfully:', { systemFolderId, jsonFolderId, resourceFolderId });
+
+            // 오래된 파일 정리 정책 실행 (7일 경과)
+            await cleanupOldData();
+
+            return { jsonFolderId, resourceFolderId };
+        } catch (err) {
+            console.error('Failed to init system storage:', err);
+            throw err;
+        } finally {
+            isInitializing = false;
         }
-        systemFolderId = systemFolder.id;
+    })();
 
-        // 2. 하위 폴더 확인 및 생성 (json, resources)
-        const systemFiles = await getFiles(systemFolderId);
-
-        let jsonFolder = systemFiles.find(f => f.name === JSON_DIR);
-        if (!jsonFolder) jsonFolder = await createFolder(JSON_DIR, systemFolderId);
-        jsonFolderId = jsonFolder.id;
-
-        let resourceFolder = systemFiles.find(f => f.name === RESOURCE_DIR);
-        if (!resourceFolder) resourceFolder = await createFolder(RESOURCE_DIR, systemFolderId);
-        resourceFolderId = resourceFolder.id;
-
-        console.log('System storage initialized:', { systemFolderId, jsonFolderId, resourceFolderId });
-
-        // 오래된 파일 정리 정책 실행 (7일 경과)
-        await cleanupOldData();
-
-        return { jsonFolderId, resourceFolderId };
-    } catch (err) {
-        console.error('Failed to init system storage:', err);
-        throw err;
-    }
+    return initPromise;
 };
 
 // 7일이 지난 데이터 삭제 정책
@@ -89,6 +122,7 @@ export const saveJsonData = async (tableName, data) => {
 export const fetchTableLogs = async (tableName) => {
     if (!jsonFolderId) throw new Error('System storage not initialized');
     const allFiles = await getFiles(jsonFolderId);
+    if (!tableName) return allFiles;
     return allFiles.filter(f => f.name.startsWith(`${tableName}_`));
 };
 
@@ -97,3 +131,35 @@ export const uploadResource = async (file) => {
     if (!resourceFolderId) throw new Error('System storage not initialized');
     return await uploadFile(file, resourceFolderId);
 };
+
+/**
+ * 변경 이력(명령 로그) 저장
+ * @param {string} op - 작업 종류 (CREATE, UPDATE, DELETE)
+ * @param {string} tableName - 대상 테이블명
+ * @param {string} id - 데이터 고유 ID
+ */
+export const saveActionLog = async (op, tableName, id) => {
+    if (!jsonFolderId) return;
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `ACTION_${timestamp}.json`;
+
+    const actionData = {
+        op,
+        tableName,
+        id,
+        timestamp: new Date().toISOString()
+    };
+
+    const blob = new Blob([JSON.stringify(actionData, null, 2)], { type: 'application/json' });
+    const file = new File([blob], fileName);
+
+    console.log(`Saving action log: ${op} for ${tableName} (ID: ${id})`);
+    return await uploadFile(file, jsonFolderId);
+};
+// 시스템 폴더 ID 가져오기 (관리용)
+export const getSystemFolderIds = () => ({
+    systemFolderId,
+    jsonFolderId,
+    resourceFolderId
+});

@@ -1,13 +1,50 @@
 {
-  "name": "jindan",
+  "name": "jindan-studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.9.0",
   "type": "module",
+  "main": "electron/main.cjs",
+  "description": "더죤환경기술(주) 기술진단팀 협업스튜디오",
+  "author": "Jindan Team",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"vite\" \"electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "publish": "vite build && electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.jindan.studio",
+    "productName": "기술진단팀 협업스튜디오",
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "YOUR_GITHUB_USERNAME",
+        "repo": "jindan-studio"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "기술진단팀 협업스튜디오"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ]
   },
   "dependencies": {
     "lucide-react": "^0.563.0",
@@ -19,6 +56,11 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "electron-log": "^5.1.0",
+    "electron-updater": "^6.1.8",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

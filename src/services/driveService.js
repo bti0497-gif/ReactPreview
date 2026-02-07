@@ -2,10 +2,10 @@
  * Google Drive API v3 연동 서비스
  */
 
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const CLIENT_SECRET = import.meta.env.VITE_GOOGLE_CLIENT_SECRET;
-const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN;
-const FOLDER_ID = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID;
+const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || import.meta.env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = import.meta.env.VITE_GOOGLE_CLIENT_SECRET || import.meta.env.GOOGLE_CLIENT_SECRET;
+const REFRESH_TOKEN = import.meta.env.VITE_GOOGLE_REFRESH_TOKEN || import.meta.env.GOOGLE_REFRESH_TOKEN;
+const FOLDER_ID = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID || import.meta.env.GOOGLE_DRIVE_FOLDER_ID;
 
 let accessToken = '';
 
@@ -302,6 +302,27 @@ export const downloadFile = async (fileId, fileName) => {
     } catch (error) {
         console.error('Error downloading file:', error);
         alert('파일을 다운로드할 수 없습니다. (권한 또는 파일 형식 문제)');
+    }
+};
+
+/**
+ * 파일의 내용을 가져옵니다. (주로 JSON용)
+ */
+export const getFileContent = async (fileId) => {
+    if (!accessToken) await getAccessToken();
+
+    try {
+        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+
+        if (!response.ok) throw new Error('Fetching file content failed');
+
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Error in getFileContent service:', error);
+        throw error;
     }
 };
 

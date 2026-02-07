@@ -10,42 +10,63 @@ import {
     MessageSquare
 } from 'lucide-react';
 
-const LeftSidebar = ({ onMenuSelect, activeMenu }) => {
+const LeftSidebar = ({ onMenuSelect, activeMenu, currentUser, disabled, showAlert, showConfirm }) => {
     const menuItems = [
         { name: '프로젝트관리', icon: <LayoutDashboard size={18} /> },
         { name: '공정관리', icon: <Settings size={18} /> },
         { name: '파일관리', icon: <FileText size={18} /> },
         { name: '할일관리', icon: <CheckSquare size={18} /> },
         { name: '전체게시판', icon: <MessageSquare size={18} /> },
-        { name: '회원관리', icon: <Users size={18} /> },
+        { name: '회원관리', icon: <Users size={18} />, adminOnly: true },
     ];
 
+    const filteredMenuItems = menuItems.filter(item => {
+        if (!currentUser) return false;
+        if (item.adminOnly && currentUser.position !== '관리자') return false;
+        return true;
+    });
+
+    const handleLogout = async () => {
+        const confirmed = await showConfirm('로그아웃 하시겠습니까?');
+        if (confirmed) {
+            import('../services/authService').then(m => m.logout());
+            window.location.reload(); // 세션 초기화 및 첫 화면으로 이동
+        }
+    };
+
     return (
-        <aside className="sidebar-left">
+        <aside className={`sidebar-left ${disabled ? 'disabled' : ''}`}>
             {/* 사용자 정보 섹션 */}
             <div className="user-profile">
-                <div className="user-avatar">
-                    <Users size={24} />
-                </div>
-                <div className="user-info">
-                    <div className="user-name">홍길동 차장</div>
-                    <div className="user-id">ID: jindan_admin</div>
-                </div>
-                <div className="user-actions">
-                    <button className="action-btn" title="정보 수정">
-                        <Eye size={16} />
-                    </button>
-                    <button className="action-btn logout" title="로그아웃">
-                        <LogOut size={16} />
-                    </button>
-                </div>
+                {currentUser ? (
+                    <>
+                        <div className="user-header">
+                            <div className="user-avatar">
+                                <div className="avatar-circle">
+                                    {currentUser.name?.charAt(0)}
+                                </div>
+                            </div>
+                            <button className="action-btn logout" title="로그아웃" onClick={handleLogout}>
+                                <LogOut size={16} />
+                            </button>
+                        </div>
+                        <div className="user-info">
+                            <div className="user-name">{currentUser.name} {currentUser.position}</div>
+                            <div className="user-id">ID: {currentUser.person_id}</div>
+                        </div>
+                    </>
+                ) : (
+                    <div className="user-info empty">
+                        <div className="user-name">로그인이 필요합니다</div>
+                    </div>
+                )}
             </div>
 
             {/* 메뉴 리스트 */}
             <nav className="sidebar-nav">
                 <div className="section-header">Main Menu</div>
                 <ul className="menu-list">
-                    {menuItems.map((item, index) => (
+                    {filteredMenuItems.map((item, index) => (
                         <li
                             key={index}
                             className={`menu-item ${activeMenu === item.name ? 'active' : ''}`}

@@ -34,7 +34,7 @@ import {
     formatFileSize
 } from '../services/driveService';
 
-const FileManager = () => {
+const FileManager = ({ showAlert, showConfirm }) => {
     // 상태 관리
     const [files, setFiles] = useState([]);
     const [selectedFiles, setSelectedFiles] = useState([]); // 다중 선택 지원
@@ -64,10 +64,12 @@ const FileManager = () => {
             setError(null);
             const driveFiles = await getFiles(folderId);
             // 시스템 폴더(.system, Resources) 필터링 (사용자 공유 공간과 분리)
-            const filteredFiles = driveFiles.filter(item =>
-                !item.name.startsWith('.system') &&
-                item.name !== 'Resources'
-            );
+            const filteredFiles = driveFiles.filter(item => {
+                const name = item.name.toLowerCase();
+                return name !== '.system' &&
+                    name !== 'resources' &&
+                    name !== 'resouces';
+            });
             setFiles(filteredFiles);
         } catch (err) {
             console.error('Error in FileManager:', err);
@@ -109,15 +111,16 @@ const FileManager = () => {
             setLoading(true);
             await createFolder(folderName, currentFolderId);
             await fetchDriveFiles();
-        } catch (err) { alert(`폴더 생성 실패: ${err.message}`); }
+        } catch (err) { showAlert(`폴더 생성 실패: ${err.message}`, '오류', 'error'); }
         finally { setLoading(false); }
     };
 
     // 삭제
     const handleDelete = async () => {
-        if (selectedFiles.length === 0) return alert('삭제할 파일을 선택하세요.');
+        if (selectedFiles.length === 0) return showAlert('삭제할 파일을 선택하세요.');
         const count = selectedFiles.length;
-        if (!confirm(`${count === 1 ? `'${selectedFiles[0].name}'` : `${count}개의 항목`}을 삭제하시겠습니까?`)) return;
+        const confirmed = await showConfirm(`${count === 1 ? `'${selectedFiles[0].name}'` : `${count}개의 항목`}을 삭제하시겠습니까?`);
+        if (!confirmed) return;
 
         try {
             setLoading(true);
@@ -127,13 +130,14 @@ const FileManager = () => {
             setSelectedFiles([]);
             setLastSelectedIndex(-1);
             await fetchDriveFiles();
-        } catch (err) { alert(`삭제 실패: ${err.message}`); }
+            await showAlert('삭제되었습니다.', '성공', 'success');
+        } catch (err) { showAlert(`삭제 실패: ${err.message}`, '오류', 'error'); }
         finally { setLoading(false); }
     };
 
     // 이름 바꾸기 (단일 선택 시에만 활성화)
     const handleRename = async () => {
-        if (selectedFiles.length !== 1) return alert('이름을 변경할 파일 하나를 선택하세요.');
+        if (selectedFiles.length !== 1) return showAlert('이름을 변경할 파일 하나를 선택하세요.');
         const file = selectedFiles[0];
         const newName = prompt('새로운 이름을 입력하세요:', file.name);
         if (!newName || newName === file.name) return;
@@ -142,15 +146,17 @@ const FileManager = () => {
             await renameFile(file.id, newName);
             await fetchDriveFiles();
             setSelectedFiles([]);
-        } catch (err) { alert(`이름 변경 실패: ${err.message}`); }
+            await showAlert('이름이 변경되었습니다.', '성공', 'success');
+        } catch (err) { showAlert(`이름 변경 실패: ${err.message}`, '오류', 'error'); }
         finally { setLoading(false); }
     };
 
     // 다운로드
     const handleDownload = async () => {
-        if (selectedFiles.length === 0) return alert('다운로드할 파일을 선택하세요.');
+        if (selectedFiles.length === 0) return showAlert('다운로드할 파일을 선택하세요.');
         if (selectedFiles.length > 1) {
-            if (!confirm(`${selectedFiles.length}개의 파일을 순차적으로 다운로드합니다. 계속하시겠습니까?`)) return;
+            const confirmed = await showConfirm(`${selectedFiles.length}개의 파일을 순차적으로 다운로드합니다. 계속하시겠습니까?`);
+            if (!confirmed) return;
         }
         for (const file of selectedFiles) {
             await downloadFile(file.id, file.name);
@@ -337,7 +343,8 @@ const FileManager = () => {
 
                 // 중복 체크
                 if (files.some(f => f.name === file.name)) {
-                    if (confirm(`'${file.name}' 파일이 이미 존재합니다.\n이름을 변경하여 업로드하시겠습니까?`)) {
+                    const confirmed = await showConfirm(`'${file.name}' 파일이 이미 존재합니다.\n이름을 변경하여 업로드하시겠습니까?`);
+                    if (confirmed) {
                         uploadName = getUniqueName(file.name);
                     } else {
                         console.log(`Upload skipped for: ${file.name}`);
@@ -348,8 +355,9 @@ const FileManager = () => {
                 await uploadFile(file, currentFolderId, uploadName);
             }
             await fetchDriveFiles();
+            await showAlert('업로드가 완료되었습니다.', '성공', 'success');
         } catch (err) {
-            alert(`업로드 실패: ${err.message}`);
+            showAlert(`업로드 실패: ${err.message}`, '오류', 'error');
         } finally {
             setUploading(false);
         }
@@ -405,12 +413,14 @@ const FileManager = () => {
         if (!draggedFileId || draggedFileId === targetFile.id) return;
 
         if (targetFile.mimeType === 'application/vnd.google-apps.folder') {
-            if (confirm(`'${draggedFileId}' 파일을 '${targetFile.name}' 폴더로 이동하시겠습니까?`)) {
+            const confirmed = await showConfirm(`'${targetFile.name}' 폴더로 이동하시겠습니까?`);
+            if (confirmed) {
                 try {
                     setLoading(true);
                     await moveFile(draggedFileId, currentFolderId, targetFile.id);
                     await fetchDriveFiles();
-                } catch (err) { alert(`이동 실패: ${err.message}`); }
+                    await showAlert('파일이 이동되었습니다.', '성공', 'success');
+                } catch (err) { showAlert(`이동 실패: ${err.message}`, '오류', 'error'); }
                 finally { setLoading(false); }
             }
         } else {

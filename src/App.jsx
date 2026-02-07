@@ -8,26 +8,139 @@ import './index.css';
 import LeftSidebar from './components/LeftSidebar';
 import FileManager from './components/FileManager';
 import BoardWrite from './components/BoardWrite';
+import BoardList from './components/BoardList';
+import BoardView from './components/BoardView';
 import { initSystemStorage } from './services/dataService';
+import { getCurrentUser } from './services/authService';
+import { dbService } from './services/dbService';
+import { syncAllData } from './services/syncService';
+import ProjectList from './components/ProjectList';
+import ProjectWrite from './components/ProjectWrite';
+import ProjectView from './components/ProjectView';
+import ProcessList from './components/ProcessList';
+import TaskManager from './components/TaskManager';
+import RightSidebar from './components/RightSidebar';
+import Dashboard from './components/Dashboard';
+import Login from './components/Login';
+import GlobalModal from './components/common/GlobalModal';
+import { Minus, X, Square } from 'lucide-react';
 /* ========================================================================== */
 
 function App() {
-  /* [CORE STATE] */
   const [activeMenu, setActiveMenu] = useState('');
+  const [viewMode, setViewMode] = useState('list');
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [selectedProject, setSelectedProject] = useState(null);
   const [sysReady, setSysReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   /* ------------ */
+  const [modal, setModal] = useState({
+    isOpen: false,
+    type: 'alert',
+    title: '',
+    message: '',
+    onConfirm: null,
+    onCancel: null
+  });
+
+  const showAlert = (message, title = '알림', type = 'alert') => {
+    return new Promise((resolve) => {
+      setModal({
+        isOpen: true,
+        type,
+        title,
+        message,
+        onConfirm: () => {
+          setModal(prev => ({ ...prev, isOpen: false }));
+          resolve(true);
+        },
+        onCancel: null
+      });
+    });
+  };
+
+  const showConfirm = (message, title = '확인') => {
+    return new Promise((resolve) => {
+      setModal({
+        isOpen: true,
+        type: 'confirm',
+        title,
+        message,
+        onConfirm: () => {
+          setModal(prev => ({ ...prev, isOpen: false }));
+          resolve(true);
+        },
+        onCancel: () => {
+          setModal(prev => ({ ...prev, isOpen: false }));
+          resolve(false);
+        }
+      });
+    });
+  };
 
   useEffect(() => {
     const init = async () => {
       try {
         await initSystemStorage(import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID);
+
+        // 초기 관리자 계정 확인 및 생성
+        try {
+          const members = dbService.getAll('회원관리');
+          if (!members.find(m => m.person_id === 'admin')) {
+            console.log('기본 관리자 계정 생성');
+            dbService.save('회원관리', {
+              person_id: 'admin',
+              password: 'admin',
+              name: '최고관리자',
+              department: '관리부',
+              position: '관리자',
+              role: 'admin',
+              email: 'admin@jindan.com',
+              phone: '010-0000-0000',
+              joinDate: new Date().toISOString().split('T')[0]
+            });
+          }
+        } catch (e) {
+          console.error('Admin init failed:', e);
+        }
+
+        // 초기 데이터 동기화
+        try {
+          await syncAllData();
+        } catch (e) {
+          console.error('Initial sync failed:', e);
+        }
+
         setSysReady(true);
+
+        // 세션 확인
+        const user = getCurrentUser();
+        if (user) setCurrentUser(user);
       } catch (err) {
         console.error('System initialization failed:', err);
       }
     };
     init();
   }, []);
+
+  // Sync data when menu changes to ensure fresh data
+  useEffect(() => {
+    const syncOnMenuChange = async () => {
+      if (sysReady && activeMenu && !isSyncing) {
+        try {
+          setIsSyncing(true);
+          await syncAllData();
+        } catch (e) {
+          console.error('Menu sync failed:', e);
+        } finally {
+          setIsSyncing(false);
+        }
+      }
+    };
+    syncOnMenuChange();
+  }, [activeMenu]);
+
 
   const renderContent = () => {
     if (!sysReady && activeMenu !== '파일관리') {
@@ -38,29 +151,139 @@ function App() {
       );
     }
 
+    if (!currentUser) {
+      return <Login onLoginSuccess={(user) => setCurrentUser(user)} showAlert={showAlert} showConfirm={showConfirm} />;
+    }
+
+    const boardWidthStyle = {
+      maxWidth: '650px',
+      margin: '0 auto',
+      width: '100%',
+      backgroundColor: '#fff',
+      minHeight: '100%'
+    };
+
     switch (activeMenu) {
       case '파일관리':
-        return <FileManager />;
-      case '프로젝트관리':
-      case '공정관리':
+        return <FileManager showAlert={showAlert} showConfirm={showConfirm} />;
       case '할일관리':
+        return <TaskManager showAlert={showAlert} showConfirm={showConfirm} />;
+      case '본사공지':
       case '전체게시판':
-      case '회원관리':
-        return <BoardWrite
-          menuName={activeMenu}
-          onCancel={() => setActiveMenu('')}
-          onSaveSuccess={() => {
-            // 저장 성공 후 리스트로 이동하거나 알림 처리
-            setActiveMenu('');
-          }}
-        />;
-      default:
+        if (viewMode === 'write') {
+          return (
+            <div style={boardWidthStyle}>
+              <BoardWrite
+                initialData={selectedPost}
+                onCancel={() => {
+                  if (selectedPost) setViewMode('view');
+                  else setViewMode('list');
+                }}
+                onSaveSuccess={() => {
+                  setSelectedPost(null);
+                  setViewMode('list');
+                }}
+                showAlert={showAlert}
+                showConfirm={showConfirm}
+              />
+            </div>
+          );
+        }
+        if (viewMode === 'view') {
+          return (
+            <div style={boardWidthStyle}>
+              <BoardView
+                postId={selectedPost?.id}
+                onBack={() => setViewMode('list')}
+                onEdit={() => setViewMode('write')}
+                onDeleteSuccess={() => setViewMode('list')}
+                showAlert={showAlert}
+                showConfirm={showConfirm}
+              />
+            </div>
+          );
+        }
         return (
-          <div className="welcome-screen">
-            <h1>협업 스튜디오에 오신 것을 환영합니다</h1>
-            <p>왼쪽 메뉴에서 작업할 항목을 선택해 주세요.</p>
+          <div style={boardWidthStyle}>
+            <BoardList
+              onViewPost={(post) => {
+                setSelectedPost(post);
+                setViewMode('view');
+              }}
+              onWriteNew={() => {
+                setSelectedPost(null);
+                setViewMode('write');
+              }}
+              showAlert={showAlert}
+              showConfirm={showConfirm}
+            />
           </div>
         );
+      case '멤버관리':
+      case '회원관리':
+        return (
+          <div style={boardWidthStyle}>
+            <MemberList showAlert={showAlert} showConfirm={showConfirm} />
+          </div>
+        );
+      case '프로젝트관리':
+        if (viewMode === 'write') {
+          return (
+            <div style={boardWidthStyle}>
+              <ProjectWrite
+                initialData={selectedProject}
+                onCancel={() => {
+                  if (selectedProject) setViewMode('view');
+                  else setViewMode('list');
+                }}
+                onSaveSuccess={() => {
+                  setSelectedProject(null);
+                  setViewMode('list');
+                }}
+                showAlert={showAlert}
+                showConfirm={showConfirm}
+              />
+            </div>
+          );
+        }
+        if (viewMode === 'view') {
+          return (
+            <div style={boardWidthStyle}>
+              <ProjectView
+                project={selectedProject}
+                onBack={() => setViewMode('list')}
+                onEdit={() => setViewMode('write')}
+                onDeleteSuccess={() => setViewMode('list')}
+                showAlert={showAlert}
+                showConfirm={showConfirm}
+              />
+            </div>
+          );
+        }
+        return (
+          <div style={boardWidthStyle}>
+            <ProjectList
+              onViewProject={(proj) => {
+                setSelectedProject(proj);
+                setViewMode('view');
+              }}
+              onWriteNew={() => {
+                setSelectedProject(null);
+                setViewMode('write');
+              }}
+              showAlert={showAlert}
+              showConfirm={showConfirm}
+            />
+          </div>
+        );
+      case '공정관리':
+        return (
+          <div style={boardWidthStyle}>
+            <ProcessList showAlert={showAlert} showConfirm={showConfirm} />
+          </div>
+        );
+      default:
+        return <Dashboard />;
     }
   };
 
@@ -68,19 +291,24 @@ function App() {
     <div className="app-container">
       {/* Header / Title Bar */}
       <header className="header">
-        <div className="header-title">
+        <div
+          className="header-title"
+          onClick={() => setActiveMenu('')}
+          style={{ cursor: 'pointer' }}
+          title="대시보드로 이동"
+        >
+          <img src="/icon.svg" alt="App Icon" className="app-icon" />
           더죤환경기술(주) 기술진단팀 협업스튜디오
         </div>
         <div className="header-controls">
-          <div className="control-btn" title="Minimize">
-            <svg width="12" height="12" viewBox="0 0 12 12">
-              <rect x="2" y="5.5" width="8" height="1" fill="currentColor" />
-            </svg>
+          <div className="control-btn" title="최소화">
+            <Minus size={14} />
           </div>
-          <div className="control-btn close" title="Close">
-            <svg width="12" height="12" viewBox="0 0 12 12">
-              <path d="M2.5 2.5L9.5 9.5M9.5 2.5L2.5 9.5" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
+          <div className="control-btn" title="최대화">
+            <Square size={12} />
+          </div>
+          <div className="control-btn close" title="닫기">
+            <X size={14} />
           </div>
         </div>
       </header>
@@ -88,20 +316,51 @@ function App() {
       {/* Main Layout Body */}
       <main className="main-wrapper">
         {/* Left Sidebar (250px) */}
-        <LeftSidebar onMenuSelect={setActiveMenu} activeMenu={activeMenu} />
+        <LeftSidebar
+          onMenuSelect={async (menu) => {
+            if (!currentUser) return; // 미로그인 시 차단
+
+            // 메뉴 이동 시 자동 동기화
+            setIsSyncing(true);
+            try {
+              await syncAllData();
+            } finally {
+              setIsSyncing(false);
+            }
+
+            setActiveMenu(menu);
+            setViewMode('list');
+          }}
+          activeMenu={activeMenu}
+          currentUser={currentUser}
+          disabled={!currentUser}
+          showAlert={showAlert}
+          showConfirm={showConfirm}
+        />
 
         {/* Center Workspace (Responsive & Independent Scroll) */}
         <section className="workspace">
           {renderContent()}
         </section>
 
-        {/* Right Sidebar (300px) */}
-        <aside className="sidebar-right">
-          <div className="section-header">Details & Insights</div>
-          <div style={{ padding: '0 16px' }}>
-            <p style={{ color: '#64748b', fontSize: '13px' }}>Contextual information and stats...</p>
-          </div>
-        </aside>
+
+        {/* Right Sidebar - Dashboard */}
+        {currentUser && (
+          <RightSidebar
+            onMenuSelect={async (menu) => {
+              setIsSyncing(true);
+              try {
+                await syncAllData();
+              } finally {
+                setIsSyncing(false);
+              }
+              setActiveMenu(menu);
+              setViewMode('list');
+            }}
+            setSelectedProject={setSelectedProject}
+            setSelectedDate={() => { }}
+          />
+        )}
       </main>
 
       {/* Footer / Status Bar */}
@@ -116,12 +375,19 @@ function App() {
             marginRight: '6px',
             animation: sysReady ? 'none' : 'pulse 1.5s infinite'
           }}></span>
-          {sysReady ? 'Cloud Synced' : 'Syncing...'}
+          {isSyncing ? 'Syncing...' : (sysReady ? 'Cloud Synced' : 'Syncing...')}
         </div>
         <div className="status-item">
           v1.0.0-prototype | 2026-02-06
         </div>
       </footer>
+
+      {/* Global Modal Overlay */}
+      <GlobalModal
+        {...modal}
+        onConfirm={modal.onConfirm}
+        onCancel={modal.onCancel}
+      />
     </div>
   );
 }

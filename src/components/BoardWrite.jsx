@@ -1,13 +1,22 @@
-import React, { useState, useRef } from 'react';
-import { saveJsonData, uploadResource } from '../services/dataService';
+import { saveJsonData, uploadResource, saveActionLog } from '../services/dataService';
+import { getCurrentUser } from '../services/authService';
+import { deleteFile } from '../services/driveService';
+import { dbService } from '../services/dbService';
 
-const BoardWrite = ({ menuName, onCancel, onSaveSuccess }) => {
-    const [title, setTitle] = useState('');
-    const [content, setContent] = useState('');
-    const [attachments, setAttachments] = useState([]);
+const BoardWrite = ({ menuName, onCancel, onSaveSuccess, initialData, showAlert, showConfirm }) => {
+    const [title, setTitle] = useState(initialData?.title || '');
+    const [content, setContent] = useState(initialData?.content || '');
+    const [attachments, setAttachments] = useState(initialData?.attachments || []);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef(null);
     const editorRef = useRef(null);
+
+    // 초기 데이터가 있을 경우 에디터 내용 설정
+    useEffect(() => {
+        if (initialData && editorRef.current) {
+            editorRef.current.innerHTML = initialData.content;
+        }
+    }, []);
 
     // 툴바 명령 실행
     const execCmd = (command, value = null) => {
@@ -45,7 +54,7 @@ const BoardWrite = ({ menuName, onCancel, onSaveSuccess }) => {
         const textContent = editorRef.current?.innerText || '';
 
         if (!title.trim() || !textContent.trim() || textContent.trim() === '') {
-            return alert('제목과 내용을 입력해 주세요.');
+            return showAlert('제목과 내용을 입력해 주세요.');
         }
 
         try {
@@ -68,37 +77,57 @@ const BoardWrite = ({ menuName, onCancel, onSaveSuccess }) => {
             }
 
             // 2. 게시글 데이터(JSON) 생성
+            const user = getCurrentUser();
             const postData = {
-                id: crypto.randomUUID(),
+                id: initialData?.id || crypto.randomUUID(),
                 title,
                 content: currentHTML, // 최신 HTML 내용 저장
-                author: '홍길동 차장', // 추후 사용자 정보 연동
-                createdAt: new Date().toISOString(),
+                author: initialData?.author || (user ? `${user.name} ${user.position}` : '익명'),
+                authorId: initialData?.authorId || (user ? user.person_id : 'anonymous'),
+                createdAt: initialData?.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
                 attachments: uploadedFiles,
+                comments: initialData?.comments || [],
                 menu: menuName
             };
 
             // 3. 구글 드라이브에 JSON 저장
-            await saveJsonData(menuName, postData);
+            const saveResult = await saveJsonData(menuName, postData);
 
-            alert('게시글이 성공적으로 등록되었습니다.');
+            // 4. 변경 이력 로그 저장
+            await saveActionLog(initialData ? 'UPDATE' : 'CREATE', menuName, postData.id);
+
+            // 5. 로컬 DB 동기화 (즉시 반영)
+            dbService.save(menuName, { ...postData, fileId: saveResult.id });
+
+            // 6. 수정 모드일 경우 기존 로그 파일 삭제
+            if (initialData && initialData.fileId) {
+                try {
+                    await deleteFile(initialData.fileId);
+                } catch (delErr) {
+                    console.warn('Failed to delete old log file:', delErr);
+                }
+            }
+
+            await showAlert(initialData ? '게시물을 수정했습니다.' : '게시물을 등록했습니다.', '성공', 'success');
             if (onSaveSuccess) onSaveSuccess();
         } catch (err) {
-            alert(`등록 실패: ${err.message}`);
+            showAlert(`등록 실패: ${err.message}`, '오류', 'error');
         } finally {
             setIsSubmitting(false);
         }
     };
 
     return (
-        <div className="bg-gray-50 dark:bg-background-dark flex justify-center w-full min-h-full">
+        <div className="bg-gray-50 dark:bg-background-dark flex justify-center w-full h-full">
             <div className="relative flex h-full w-full max-w-[650px] flex-col bg-white dark:bg-background-dark shadow-2xl overflow-hidden">
-                <header className="flex items-center justify-center px-4 py-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-background-dark z-10">
-                    <h1 className="text-[#0d141b] dark:text-white text-lg font-bold leading-tight">{menuName}</h1>
-                </header>
-
                 {/* Fixed Top Section: Title & Toolbar */}
-                <div className="flex flex-col bg-white dark:bg-background-dark z-10">
+                <div className="flex flex-col bg-white dark:bg-background-dark z-10 sticky top-0">
+                    <header className="flex items-center justify-center px-4 py-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-background-dark">
+                        <h1 className="text-[#0d141b] dark:text-white text-lg font-bold leading-tight">
+                            {initialData ? `${menuName} 수정` : menuName}
+                        </h1>
+                    </header>
                     {/* Title Input */}
                     <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2">
                         <span className="text-gray-900 font-bold whitespace-nowrap text-sm">Title:</span>
@@ -178,16 +207,11 @@ const BoardWrite = ({ menuName, onCancel, onSaveSuccess }) => {
                         <button type="button" onClick={() => execCmd('insertUnorderedList')} className="toolbar-btn"><span className="material-symbols-outlined">format_list_bulleted</span></button>
                         <button type="button" onClick={() => execCmd('formatBlock', 'blockquote')} className="toolbar-btn"><span className="material-symbols-outlined">format_quote</span></button>
                         <button type="button" className="toolbar-btn"><span className="material-symbols-outlined">sentiment_satisfied</span></button>
-                        <button type="button" className="toolbar-btn"><span className="material-symbols-outlined">table_chart</span></button>
                         <button type="button" onClick={() => {
                             const url = prompt('URL을 입력하세요:');
                             if (url) execCmd('createLink', url);
                         }} className="toolbar-btn"><span className="material-symbols-outlined">link</span></button>
-                        <button type="button" className="toolbar-btn"><span className="material-symbols-outlined">blur_on</span></button>
                         <button type="button" onClick={() => execCmd('insertHorizontalRule')} className="toolbar-btn"><span className="material-symbols-outlined">horizontal_rule</span></button>
-                        <div className="ml-auto flex items-center">
-                            <button type="button" className="toolbar-btn"><span className="material-symbols-outlined">spellcheck</span></button>
-                        </div>
                     </div>
                 </div>
 
@@ -271,10 +295,10 @@ const BoardWrite = ({ menuName, onCancel, onSaveSuccess }) => {
                         <button
                             type="button"
                             onClick={handleSubmit}
-                            disabled={isSubmitting}
-                            className="px-6 py-2 bg-primary rounded-lg text-white font-bold text-xs shadow-sm active:opacity-90 disabled:opacity-50"
+                            disabled={isSubmitting || !title.trim()}
+                            className="px-6 py-2 bg-primary rounded-lg text-white font-bold text-xs shadow-sm active:opacity-90 disabled:opacity-50 disabled:bg-gray-300 disabled:cursor-not-allowed"
                         >
-                            {isSubmitting ? '중...' : '등록하기'}
+                            {isSubmitting ? '저장 중...' : (initialData ? '수정완료' : '등록하기')}
                         </button>
                     </div>
                 </footer>
