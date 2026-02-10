@@ -105,8 +105,16 @@ const FileManager = ({ showAlert, showConfirm }) => {
 
     // 새 폴더 만들기
     const handleCreateFolder = async () => {
-        const folderName = prompt('새 폴더 이름을 입력하세요:', '새 폴더');
-        if (!folderName) return;
+        let folderName = '새 폴더';
+        try {
+            // Electron 환경에서 prompt가 동작하지 않을 수 있으므로 대비
+            const input = prompt('새 폴더 이름을 입력하세요:', '새 폴더');
+            if (input === null) return; // 취소 버튼
+            if (input.trim()) folderName = input.trim();
+        } catch (e) {
+            console.warn('Prompt not supported, using default name');
+        }
+
         try {
             setLoading(true);
             await createFolder(folderName, currentFolderId);
@@ -671,7 +679,8 @@ const FileManager = ({ showAlert, showConfirm }) => {
           height: 100%;
         }
         .file-manager-container {
-          width: 700px;
+          width: 100%;
+          max-width: 750px;
           background: #ffffff;
           border: 1px solid #e2e8f0;
           border-radius: 12px;
@@ -727,7 +736,8 @@ const FileManager = ({ showAlert, showConfirm }) => {
           border: none;
           background: transparent;
           font-size: 13px;
-          width: 150px;
+          width: 100%;
+          max-width: 150px;
           outline: none;
         }
         .icon-btn {
@@ -744,11 +754,14 @@ const FileManager = ({ showAlert, showConfirm }) => {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
         }
         .button-group {
           display: flex;
           align-items: center;
           gap: 4px;
+          flex-wrap: wrap;
         }
         .tool-btn {
           display: flex;
@@ -784,6 +797,27 @@ const FileManager = ({ showAlert, showConfirm }) => {
           font-weight: 600;
           cursor: pointer;
           box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+          white-space: nowrap;
+        }
+
+        /* Responsive Breakpoints for FileManager */
+        @media (max-width: 1280px) {
+          .main-toolbar { padding: 10px; }
+          .tool-btn span { display: none; }
+          .tool-btn { padding: 8px; }
+          .divider { margin: 0 4px; }
+          .search-bar input { width: 100px; }
+        }
+
+        @media (max-width: 1024px) {
+          .explorer-header { padding: 10px; }
+          .title-area { flex-direction: column; align-items: flex-start; gap: 10px; }
+          .header-actions { width: 100%; justify-content: space-between; }
+          .search-bar { flex: 1; }
+          .main-toolbar { flex-direction: column; align-items: stretch; }
+          .button-group { justify-content: space-between; margin-bottom: 10px; }
+          .upload-zone { width: 100%; }
+          .main-upload-btn { width: 100%; justify-content: center; }
         }
 
         /* Body (500px) */

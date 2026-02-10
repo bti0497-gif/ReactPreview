@@ -14,7 +14,7 @@ import { deleteFile } from '../services/driveService';
 import { getCurrentUser } from '../services/authService';
 import { Plus, ChevronLeft, ChevronRight, Save, X, Edit, Trash2 } from 'lucide-react';
 
-const TaskManager = ({ showAlert, showConfirm }) => {
+const TaskManager = ({ showAlert, showConfirm, onDataChange }) => {
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [tasks, setTasks] = useState([]);
     const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -72,44 +72,54 @@ const TaskManager = ({ showAlert, showConfirm }) => {
         }
 
         const isNewTask = editingTaskId.startsWith('new_');
+        const targetDate = formatDate(selectedDate);
+        const tempContent = editingContent;
+        const tempIsPublic = editingIsPublic;
 
         try {
+            let taskToSync;
             if (isNewTask) {
-                // Create new task
-                const newTask = {
+                // 1. 새 할일 데이터 생성
+                taskToSync = {
                     id: crypto.randomUUID(),
-                    date: formatDate(selectedDate),
-                    content: editingContent,
-                    isPublic: editingIsPublic,
+                    date: targetDate,
+                    content: tempContent,
+                    isPublic: tempIsPublic,
                     author: user.name,
                     authorId: user.person_id,
                     createdAt: new Date().toISOString()
                 };
-
-                await saveJsonData('할일관리', newTask);
-                await saveActionLog('CREATE', '할일관리', newTask.id);
-                dbService.save('할일관리', newTask);
             } else {
-                // Update existing task
-                const task = tasks.find(t => t.id === editingTaskId);
-                if (!task) return;
-
-                const updatedTask = {
-                    ...task,
-                    content: editingContent,
-                    isPublic: editingIsPublic
+                // 기존 할일 수정
+                const existingTask = tasks.find(t => t.id === editingTaskId);
+                if (!existingTask) return;
+                taskToSync = {
+                    ...existingTask,
+                    content: tempContent,
+                    isPublic: tempIsPublic
                 };
-
-                await saveJsonData('할일관리', updatedTask);
-                await saveActionLog('UPDATE', '할일관리', updatedTask.id);
-                dbService.save('할일관리', updatedTask);
             }
 
+            // 2. 로컬 DB 및 UI 즉시 업데이트 (낙관적 업데이트)
+            dbService.save('할일관리', taskToSync);
             setEditingTaskId(null);
             setEditingContent('');
             setEditingIsPublic(false);
             loadTasks();
-            await showAlert('저장되었습니다.', '성공', 'success');
+            showAlert('저장되었습니다.', '성공', 'success');
+            if (onDataChange) onDataChange();
+
+            // 3. 백그라운드 구글 드라이브 동기화
+            (async () => {
+                try {
+                    await saveJsonData('할일관리', taskToSync);
+                    await saveActionLog(isNewTask ? 'CREATE' : 'UPDATE', '할일관리', taskToSync.id);
+                    console.log('Background task sync complete:', taskToSync.id);
+                } catch (syncErr) {
+                    console.error('Background task sync failed:', syncErr);
+                }
+            })();
+
         } catch (err) {
             showAlert(`저장 실패: ${err.message}`, '오류', 'error');
         }
@@ -132,13 +142,25 @@ const TaskManager = ({ showAlert, showConfirm }) => {
         if (!confirmed) return;
 
         try {
-            if (task.fileId) {
-                await deleteFile(task.fileId);
-            }
-            await saveActionLog('DELETE', '할일관리', task.id);
+            // 1. 로컬 DB 및 UI 즉시 업데이트 (낙관적 업데이트)
             dbService.remove('할일관리', task.id);
             loadTasks();
-            await showAlert('삭제되었습니다.', '성공', 'success');
+            showAlert('삭제되었습니다.', '성공', 'success');
+            if (onDataChange) onDataChange();
+
+            // 2. 백그라운드 구글 드라이브 동기화
+            (async () => {
+                try {
+                    if (task.fileId) {
+                        await deleteFile(task.fileId);
+                    }
+                    await saveActionLog('DELETE', '할일관리', task.id);
+                    console.log('Background task deletion sync complete:', task.id);
+                } catch (syncErr) {
+                    console.error('Background task deletion sync failed:', syncErr);
+                }
+            })();
+
         } catch (err) {
             showAlert(`삭제 실패: ${err.message}`, '오류', 'error');
         }
@@ -212,7 +234,7 @@ const TaskManager = ({ showAlert, showConfirm }) => {
 
     return (
         <div className="board-list-container relative">
-            <div className="flex gap-2.5 h-full" style={{ maxWidth: '650px', margin: '0 auto' }}>
+            <div className="flex gap-4 h-full" style={{ maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
                 {/* Left Panel - Calendar */}
                 <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100" style={{ width: '300px', flexShrink: 0 }}>
                     <div className="flex items-center justify-between mb-4">
@@ -239,8 +261,8 @@ const TaskManager = ({ showAlert, showConfirm }) => {
                     </div>
                 </div>
 
-                {/* Right Panel - Tasks */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col relative" style={{ width: '400px', flexShrink: 0 }}>
+                {/* Right Panel - Tasks (Flexible) */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col relative flex-1 min-w-[350px]">
                     <div className="p-4 border-b border-slate-100">
                         <h2 className="text-lg font-black text-slate-800">
                             {formatDate(selectedDate)} 할일

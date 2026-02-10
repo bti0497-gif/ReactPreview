@@ -5,11 +5,10 @@ import { dbService } from '../services/dbService';
 import { getFileContent } from '../services/driveService';
 import { Users, RefreshCw, ChevronLeft, ChevronRight, User, Hash, Calendar, ShieldCheck, Trash2, UserPlus, Edit3, X, Save } from 'lucide-react';
 
-const MemberList = ({ showAlert, showConfirm }) => {
+const MemberList = ({ showAlert, showConfirm, onDataChange }) => {
     const [members, setMembers] = useState([]);
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [loading, setLoading] = useState(true);
-    const [isDeleting, setIsDeleting] = useState(false);
     const [error, setError] = useState(null);
 
     // Modal State
@@ -66,27 +65,31 @@ const MemberList = ({ showAlert, showConfirm }) => {
         if (!confirmed) return;
 
         try {
-            setIsDeleting(true);
             const updatedMembers = members.filter(m => !selectedIds.has(m.person_id));
 
-            // 구글 드라이브에 업데이트된 리스트 저장
-            await saveJsonData('회원관리', updatedMembers);
-
-            // 개별 회원 삭제 명령 로그 저장
-            for (const personId of selectedIds) {
-                await saveActionLog('DELETE', '회원관리', personId);
-            }
-
-            // 로컬 DB 업데이트
+            // 1. 로컬 DB 및 상태 즉시 업데이트 (낙관적 업데이트)
             dbService.setTable('회원관리', updatedMembers);
-
             setMembers(updatedMembers);
+            const deletedIds = Array.from(selectedIds);
             setSelectedIds(new Set());
-            await showAlert('삭제되었습니다.', '성공', 'success');
+
+            // 2. 구글 드라이브 및 로그 저장은 백그라운드에서 진행
+            (async () => {
+                try {
+                    await saveJsonData('회원관리', updatedMembers);
+                    for (const personId of deletedIds) {
+                        await saveActionLog('DELETE', '회원관리', personId);
+                    }
+                    console.log('Background member deletion sync complete');
+                } catch (syncErr) {
+                    console.error('Background member deletion sync failed:', syncErr);
+                }
+            })();
+
+            showAlert('삭제되었습니다.', '성공', 'success');
+            if (onDataChange) onDataChange();
         } catch (err) {
             showAlert(`삭제 실패: ${err.message}`, '오류', 'error');
-        } finally {
-            setIsDeleting(false);
         }
     };
 
@@ -114,16 +117,17 @@ const MemberList = ({ showAlert, showConfirm }) => {
         }
 
         try {
-            setIsSubmitting(true);
             let updatedMembers;
+            const actionType = isEditMode ? 'UPDATE' : 'CREATE';
+            const targetPersonId = formData.person_id;
 
             if (isEditMode) {
                 updatedMembers = members.map(m =>
-                    m.person_id === formData.person_id ? { ...m, ...formData } : m
+                    m.person_id === targetPersonId ? { ...m, ...formData } : m
                 );
             } else {
                 // 중복 체크
-                if (members.some(m => m.person_id === formData.person_id)) {
+                if (members.some(m => m.person_id === targetPersonId)) {
                     showAlert('이미 존재하는 아이디입니다.', '오류', 'error');
                     return;
                 }
@@ -133,22 +137,27 @@ const MemberList = ({ showAlert, showConfirm }) => {
                 ];
             }
 
-            await saveJsonData('회원관리', updatedMembers);
-
-            // 명령 로그 저장 (회원 추가 또는 수정)
-            await saveActionLog(isEditMode ? 'UPDATE' : 'CREATE', '회원관리', formData.person_id);
-
-            // 로컬 DB 업데이트
+            // 1. 로컬 DB 및 상태 즉시 업데이트 (낙관적 업데이트)
             dbService.setTable('회원관리', updatedMembers);
-
             setMembers(updatedMembers);
             setShowModal(false);
             setSelectedIds(new Set());
-            await showAlert(isEditMode ? '수정되었습니다.' : '추가되었습니다.', '성공', 'success');
+
+            // 2. 백그라운드 구글 드라이브 업로드
+            (async () => {
+                try {
+                    await saveJsonData('회원관리', updatedMembers);
+                    await saveActionLog(actionType, '회원관리', targetPersonId);
+                    console.log('Background member save sync complete');
+                } catch (syncErr) {
+                    console.error('Background member save sync failed:', syncErr);
+                }
+            })();
+
+            showAlert(isEditMode ? '수정되었습니다.' : '추가되었습니다.', '성공', 'success');
+            if (onDataChange) onDataChange();
         } catch (err) {
             showAlert(`저장 실패: ${err.message}`, '오류', 'error');
-        } finally {
-            setIsSubmitting(false);
         }
     };
 
@@ -247,7 +256,7 @@ const MemberList = ({ showAlert, showConfirm }) => {
                 <div className="footer-right-actions">
                     <button
                         className="footer-action-btn delete"
-                        disabled={selectedIds.size === 0 || isDeleting}
+                        disabled={selectedIds.size === 0}
                         onClick={handleDelete}
                     >
                         <Trash2 size={14} /> 삭제

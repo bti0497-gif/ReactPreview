@@ -41,9 +41,12 @@ const Dashboard = () => {
             {/* Active Projects Card */}
             <div className="dashboard-card projects-card">
                 <div className="card-header">
-                    <Calendar size={24} className="header-icon" />
+                    <Calendar size={20} className="header-icon" />
                     <h2>진행 중인 프로젝트</h2>
-                    <span className="project-count">{activeProjects.length}</span>
+                    <div className="flex items-center gap-2">
+                        <span className="version-badge">ver 0.9.1</span>
+                        <span className="project-count">{activeProjects.length}</span>
+                    </div>
                 </div>
 
                 <div className="card-content">
@@ -106,7 +109,7 @@ const Dashboard = () => {
             {/* Gallery Placeholder */}
             <div className="dashboard-card gallery-card">
                 <div className="card-header">
-                    <Image size={24} className="header-icon" />
+                    <Image size={20} className="header-icon" />
                     <h2>사진 갤러리</h2>
                 </div>
 
@@ -133,18 +136,20 @@ const Dashboard = () => {
 
                 .dashboard-card {
                     background: white;
-                    border-radius: 16px;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+                    border-radius: 12px;
+                    border: 1px solid #e2e8f0;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
                     overflow: hidden;
                 }
 
                 .card-header {
                     display: flex;
                     align-items: center;
-                    gap: 12px;
-                    padding: 24px 28px;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
+                    gap: 10px;
+                    padding: 16px 20px;
+                    background: #f8fafc;
+                    border-bottom: 1px solid #e2e8f0;
+                    color: #1e293b;
                 }
 
                 .header-icon {
@@ -152,10 +157,11 @@ const Dashboard = () => {
                 }
 
                 .card-header h2 {
-                    font-size: 20px;
+                    font-size: 16px;
                     font-weight: 700;
                     margin: 0;
                     flex: 1;
+                    color: #334155;
                 }
 
                 .project-count {
@@ -164,6 +170,16 @@ const Dashboard = () => {
                     border-radius: 12px;
                     font-size: 14px;
                     font-weight: 600;
+                }
+
+                .version-badge {
+                    background: rgba(16, 185, 129, 0.2);
+                    color: #10b981;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    border: 1px solid rgba(16, 185, 129, 0.3);
                 }
 
                 .card-content {
@@ -302,7 +318,14 @@ const Dashboard = () => {
                 }
 
                 .gallery-card .card-header {
-                    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                    background: #f8fafc;
+                    border-bottom: 1px solid #e2e8f0;
+                }
+                .gallery-card .header-icon {
+                  color: #64748b;
+                }
+                .projects-card .header-icon {
+                  color: #3b82f6;
                 }
             `}</style>
         </div>

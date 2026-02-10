@@ -28,10 +28,9 @@ const ProjectWrite = ({ onCancel, onSaveSuccess, initialData, showAlert, showCon
         const user = getCurrentUser();
 
         try {
-            setIsSubmitting(true);
-
+            const projectId = initialData?.id || crypto.randomUUID();
             const projectData = {
-                id: initialData?.id || crypto.randomUUID(),
+                id: projectId,
                 title,
                 startDate,
                 endDate,
@@ -40,25 +39,40 @@ const ProjectWrite = ({ onCancel, onSaveSuccess, initialData, showAlert, showCon
                 authorId: initialData?.authorId || (user ? user.person_id : 'anonymous'),
                 createdAt: initialData?.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
-                menu: '프로젝트관리'
+                menu: '프로젝트관리',
+                fileId: initialData?.fileId || null
             };
 
-            // 1. 드라이브 저장
-            const saveResult = await saveJsonData('프로젝트관리', projectData);
+            // 1. 로컬 DB 동기화 (즉시 반영 - 낙관적 업데이트)
+            dbService.save('프로젝트관리', projectData);
 
-            // 2. 명령 로그 기록
-            await saveActionLog(initialData ? 'UPDATE' : 'CREATE', '프로젝트관리', projectData.id);
-
-            // 3. 로컬 DB 동기화
-            dbService.save('프로젝트관리', { ...projectData, fileId: saveResult.id });
-
-            // 4. 수정 모드 시 이전 파일 삭제
-            if (initialData?.fileId) {
-                await deleteFile(initialData.fileId);
-            }
-
-            await showAlert(initialData ? '프로젝트가 수정되었습니다.' : '프로젝트가 등록되었습니다.', '성공', 'success');
+            // 2. UI 즉시 대기 상태 해제 및 성공 알림
             if (onSaveSuccess) onSaveSuccess();
+            showAlert(initialData ? '프로젝트가 수정되었습니다.' : '프로젝트가 등록되었습니다.', '성공', 'success');
+
+            // 3. 백그라운드 구글 드라이브 업로드
+            (async () => {
+                try {
+                    console.log('Starting background sync for project:', projectId);
+                    const saveResult = await saveJsonData('프로젝트관리', projectData);
+                    await saveActionLog(initialData ? 'UPDATE' : 'CREATE', '프로젝트관리', projectId);
+
+                    // 실제 드라이브 fileId 반영하여 로컬 DB 재업데이트
+                    dbService.save('프로젝트관리', { ...projectData, fileId: saveResult.id });
+
+                    if (initialData?.fileId && initialData.fileId !== saveResult.id) {
+                        try {
+                            await deleteFile(initialData.fileId);
+                        } catch (delErr) {
+                            console.warn('Failed to delete old project file:', delErr);
+                        }
+                    }
+                    console.log('Background sync complete for project:', projectId);
+                } catch (syncErr) {
+                    console.error('Background sync failed for project:', syncErr);
+                }
+            })();
+
         } catch (err) {
             showAlert(`저장 실패: ${err.message}`, '오류', 'error');
         } finally {

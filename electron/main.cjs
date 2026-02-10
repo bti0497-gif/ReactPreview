@@ -18,9 +18,8 @@ function createWindow() {
         minHeight: 768,
         frame: false, // 커스텀 타이틀바 사용
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false, // 프로토타입이라 편의상 false, 추후 true로 변경 권장
-            enableRemoteModule: true,
+            nodeIntegration: false,
+            contextIsolation: true, // contextBridge를 사용하기 위해 true로 변경
             preload: path.join(__dirname, 'preload.cjs')
         },
         icon: path.join(__dirname, '../build/icon.ico')
@@ -29,10 +28,12 @@ function createWindow() {
     // 개발 모드와 프로덕션 모드 구분
     if (process.env.NODE_ENV === 'development') {
         mainWindow.loadURL('http://localhost:5173');
-        mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
     }
+
+    // Debugging: Open DevTools in all modes
+    // mainWindow.webContents.openDevTools();
 
     // 창 닫기/최소화/최대화 이벤트 처리
     ipcMain.on('minimize-window', () => mainWindow.minimize());

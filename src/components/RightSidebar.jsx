@@ -3,14 +3,14 @@ import { dbService } from '../services/dbService';
 import { getCurrentUser } from '../services/authService';
 import { Calendar, Briefcase, CheckSquare } from 'lucide-react';
 
-const RightSidebar = ({ onMenuSelect, setSelectedProject, setSelectedDate }) => {
+const RightSidebar = ({ onMenuSelect, setSelectedProject, setSelectedDate, activeMenu, isSyncing, lastDataUpdate }) => {
     const [activeProjects, setActiveProjects] = useState([]);
     const [activeProcesses, setActiveProcesses] = useState([]);
     const [upcomingTasks, setUpcomingTasks] = useState([]);
 
     useEffect(() => {
         loadDashboardData();
-    }, []);
+    }, [activeMenu, isSyncing, lastDataUpdate]);
 
     const loadDashboardData = () => {
         const today = new Date();
@@ -40,7 +40,8 @@ const RightSidebar = ({ onMenuSelect, setSelectedProject, setSelectedDate }) => 
         const upcoming = allTasks
             .filter(task => {
                 const taskDate = new Date(task.date);
-                if (taskDate <= today) return false;
+                taskDate.setHours(0, 0, 0, 0);
+                if (taskDate < today) return false;
                 // Show public tasks + user's private tasks
                 if (task.isPublic) return true;
                 return task.authorId === user?.person_id;

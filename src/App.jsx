@@ -22,6 +22,7 @@ import TaskManager from './components/TaskManager';
 import RightSidebar from './components/RightSidebar';
 import Dashboard from './components/Dashboard';
 import Login from './components/Login';
+import MemberList from './components/MemberList';
 import GlobalModal from './components/common/GlobalModal';
 import { Minus, X, Square } from 'lucide-react';
 /* ========================================================================== */
@@ -34,6 +35,7 @@ function App() {
   const [sysReady, setSysReady] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastDataUpdate, setLastDataUpdate] = useState(Date.now()); // 데이터 변경 감지용
   /* ------------ */
   const [modal, setModal] = useState({
     isOpen: false,
@@ -130,16 +132,45 @@ function App() {
       if (sysReady && activeMenu && !isSyncing) {
         try {
           setIsSyncing(true);
-          await syncAllData();
+          // Don't await here to keep UI responsive
+          syncAllData().finally(() => setIsSyncing(false));
         } catch (e) {
           console.error('Menu sync failed:', e);
-        } finally {
           setIsSyncing(false);
         }
       }
     };
     syncOnMenuChange();
   }, [activeMenu]);
+
+  // 자동 업데이트 리스너
+  useEffect(() => {
+    if (window.electron) {
+      window.electron.receive('update-available', (info) => {
+        console.log('Update available:', info);
+        // 사용자에게 알림을 줄 수도 있지만, "자동 교체"를 위해 로그만 남김
+      });
+
+      window.electron.receive('download-progress', (progressObj) => {
+        console.log(`Download progress: ${progressObj.percent}%`);
+      });
+
+      window.electron.receive('update-downloaded', (info) => {
+        console.log('Update downloaded. Restarting to install...');
+        // 다운로드 완료 시 즉시 재시작하여 업데이트 설치
+        window.electron.send('restart_app');
+      });
+
+      window.electron.receive('update-error', (err) => {
+        console.error('Update error:', err);
+      });
+    }
+  }, []);
+
+  // Window Controls
+  const handleMinimize = () => window.electron?.send('minimize-window');
+  const handleMaximize = () => window.electron?.send('maximize-window');
+  const handleClose = () => window.electron?.send('close-window');
 
 
   const renderContent = () => {
@@ -156,7 +187,7 @@ function App() {
     }
 
     const boardWidthStyle = {
-      maxWidth: '650px',
+      maxWidth: '680px',
       margin: '0 auto',
       width: '100%',
       backgroundColor: '#fff',
@@ -167,7 +198,7 @@ function App() {
       case '파일관리':
         return <FileManager showAlert={showAlert} showConfirm={showConfirm} />;
       case '할일관리':
-        return <TaskManager showAlert={showAlert} showConfirm={showConfirm} />;
+        return <TaskManager showAlert={showAlert} showConfirm={showConfirm} onDataChange={() => setLastDataUpdate(Date.now())} />;
       case '본사공지':
       case '전체게시판':
         if (viewMode === 'write') {
@@ -182,6 +213,7 @@ function App() {
                 onSaveSuccess={() => {
                   setSelectedPost(null);
                   setViewMode('list');
+                  setLastDataUpdate(Date.now());
                 }}
                 showAlert={showAlert}
                 showConfirm={showConfirm}
@@ -196,7 +228,10 @@ function App() {
                 postId={selectedPost?.id}
                 onBack={() => setViewMode('list')}
                 onEdit={() => setViewMode('write')}
-                onDeleteSuccess={() => setViewMode('list')}
+                onDeleteSuccess={() => {
+                  setViewMode('list');
+                  setLastDataUpdate(Date.now());
+                }}
                 showAlert={showAlert}
                 showConfirm={showConfirm}
               />
@@ -223,7 +258,7 @@ function App() {
       case '회원관리':
         return (
           <div style={boardWidthStyle}>
-            <MemberList showAlert={showAlert} showConfirm={showConfirm} />
+            <MemberList showAlert={showAlert} showConfirm={showConfirm} onDataChange={() => setLastDataUpdate(Date.now())} />
           </div>
         );
       case '프로젝트관리':
@@ -239,6 +274,7 @@ function App() {
                 onSaveSuccess={() => {
                   setSelectedProject(null);
                   setViewMode('list');
+                  setLastDataUpdate(Date.now());
                 }}
                 showAlert={showAlert}
                 showConfirm={showConfirm}
@@ -253,7 +289,10 @@ function App() {
                 project={selectedProject}
                 onBack={() => setViewMode('list')}
                 onEdit={() => setViewMode('write')}
-                onDeleteSuccess={() => setViewMode('list')}
+                onDeleteSuccess={() => {
+                  setViewMode('list');
+                  setLastDataUpdate(Date.now());
+                }}
                 showAlert={showAlert}
                 showConfirm={showConfirm}
               />
@@ -297,17 +336,17 @@ function App() {
           style={{ cursor: 'pointer' }}
           title="대시보드로 이동"
         >
-          <img src="/icon.svg" alt="App Icon" className="app-icon" />
+          <img src="./icon.svg" alt="App Icon" className="app-icon" />
           더죤환경기술(주) 기술진단팀 협업스튜디오
         </div>
         <div className="header-controls">
-          <div className="control-btn" title="최소화">
+          <div className="control-btn" title="최소화" onClick={handleMinimize}>
             <Minus size={14} />
           </div>
-          <div className="control-btn" title="최대화">
+          <div className="control-btn" title="최대화" onClick={handleMaximize}>
             <Square size={12} />
           </div>
-          <div className="control-btn close" title="닫기">
+          <div className="control-btn close" title="닫기" onClick={handleClose}>
             <X size={14} />
           </div>
         </div>
@@ -317,19 +356,17 @@ function App() {
       <main className="main-wrapper">
         {/* Left Sidebar (250px) */}
         <LeftSidebar
-          onMenuSelect={async (menu) => {
+          onMenuSelect={(menu) => {
             if (!currentUser) return; // 미로그인 시 차단
-
-            // 메뉴 이동 시 자동 동기화
-            setIsSyncing(true);
-            try {
-              await syncAllData();
-            } finally {
-              setIsSyncing(false);
-            }
 
             setActiveMenu(menu);
             setViewMode('list');
+
+            // 메뉴 이동 시 자동 동기화 (백그라운드)
+            if (!isSyncing) {
+              setIsSyncing(true);
+              syncAllData().finally(() => setIsSyncing(false));
+            }
           }}
           activeMenu={activeMenu}
           currentUser={currentUser}
@@ -347,16 +384,19 @@ function App() {
         {/* Right Sidebar - Dashboard */}
         {currentUser && (
           <RightSidebar
-            onMenuSelect={async (menu) => {
-              setIsSyncing(true);
-              try {
-                await syncAllData();
-              } finally {
-                setIsSyncing(false);
-              }
+            onMenuSelect={(menu) => {
               setActiveMenu(menu);
               setViewMode('list');
+
+              // 동기화는 백그라운드에서 진행
+              if (!isSyncing) {
+                setIsSyncing(true);
+                syncAllData().finally(() => setIsSyncing(false));
+              }
             }}
+            activeMenu={activeMenu}
+            isSyncing={isSyncing}
+            lastDataUpdate={lastDataUpdate}
             setSelectedProject={setSelectedProject}
             setSelectedDate={() => { }}
           />

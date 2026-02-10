@@ -93,6 +93,9 @@ const cleanupOldData = async () => {
         const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
 
         for (const file of files) {
+            // 회원관리 데이터는 영구 보존 정책에 따라 삭제 대상에서 제외
+            if (file.name.startsWith('회원관리_')) continue;
+
             const modifiedTime = new Date(file.modifiedTime);
             if (modifiedTime < sevenDaysAgo) {
                 console.log(`Cleaning up old system file: ${file.name} (${file.modifiedTime})`);
